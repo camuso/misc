@@ -1,0 +1,4 @@
+./version scsi_inq.c
+mv scsi_inq.c-* archive
+cc -o scsi_inq scsi_inq.c 
+cc -o scsi_inq scsi_inq.c -DASC_ASCQ

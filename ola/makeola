@@ -1,0 +1,21 @@
+# Makefile for kernel modules
+
+
+obj-m := ola.o
+
+# KDIR is the kernel directory that is the top-level
+# of the kernel Makefile and header files.
+KDIR := /lib/modules/$(shell uname -r)/build
+
+# PWD is print working directory where your kernel
+# module code resides.
+PWD := $(shell pwd)
+
+default:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f Module.symvers
+
+

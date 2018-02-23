@@ -1,0 +1,136 @@
+/* 
+ * ilo_channel.c 
+ *
+ * This program is not intended to be supported, or disseminated outside hp.
+ * 
+ * Shamelessly modeled on lx-hprsm:hpqci/smiftest/p.c
+ *
+ * (C) Copyright 2006 Hewlett-Packard Development Company, L.P.
+ */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/errno.h>
+
+#define PACKED __attribute__((packed))
+#pragma pack(1)
+
+/* command packet header */
+typedef struct {
+	unsigned short length, seq, command, reserved PACKED;
+} smif_pkthdr;
+
+typedef struct {
+   unsigned int errcode                PACKED;
+   unsigned short status_word            PACKED;
+   unsigned short max_users              PACKED;
+   unsigned short firmware_version       PACKED;
+   unsigned int firmware_date          PACKED;
+   unsigned int post_errcode           PACKED;
+   unsigned int datetime               PACKED;
+   unsigned int hw_revision            PACKED;
+   char board_serial_number[20];
+   unsigned short cable_status           PACKED;
+   unsigned int latest_event_id        PACKED;
+   unsigned int cfg_writecount         PACKED;
+   unsigned int post_errcode_mask      PACKED;
+#define MOUSE_INTF_ERROR	(1<<12)
+#define NIC_ERROR		(1<<11)
+#define NVRAM_RW_ERROR		(1<<8)
+#define NVRAM_INTF_ERROR	(1<<7)
+#define KB_INTF_ERROR		(1<<5)
+#define UART_ERROR		(1<<4)
+#define MEMTEST_ERROR		(1<<1)
+#define BUSMASTER_IO_ERROR	(1<<0)
+   unsigned char   class;
+   unsigned char   subclass;
+   unsigned char   reserved[30];
+}pkt_8002;
+
+/* fill out a packet header */ 
+#define SIMPLE_SMIF(cmd) \
+	(spkt->seq=0xDEAD, spkt->command=cmd, spkt->reserved=0, spkt->length=8)
+
+/* opaque data structure, used to open channel */
+typedef struct {
+	unsigned char _rsvd[128];
+} cpqci_key;
+
+#pragma pack()
+
+/* sends and receives a smif packet */ 
+int simple_pkt(void *cpqh, int cmd, int fd)
+{
+	int 		err, len;
+	int 		wr_len, rd_len;
+	unsigned long	timeout;
+	unsigned char	buf[4096];
+	unsigned char	rbuf[4096];
+	smif_pkthdr    *spkt = (smif_pkthdr *)buf;
+	pkt_8002       *pkt;
+
+	memset(buf, 0, sizeof(buf));
+	memset(rbuf, 0, sizeof(rbuf));
+
+	len = SIMPLE_SMIF(cmd);
+	//CpqCiSend(cpqh, buf, len, &err, NULL);
+	wr_len = write(fd, buf, len); 
+	if (wr_len != len) {
+		printf("simple_pkt failed (%d %d) on send command %d\n", wr_len, len, errno);
+		goto out_err;
+	}
+
+	//timeout = 5000;
+	//len = CpqCiRecv(cpqh, rbuf, sizeof(rbuf), &err, &timeout);
+	len = sizeof(rbuf);
+	rd_len = read(fd, rbuf, len);
+	if (rd_len != len) {
+		printf("simple_pkt (%d %d) on recv command %d\n", rd_len, len, errno);
+	}
+
+	/* 
+	 * you could hexdump the rbuf, or write fancy parsing routines
+	 * to look at the rbuf as a smif_pkthdr *, parse the command,
+	 * and dump the fields (start at rbuf+8) according to the 
+	 * smif specification.
+	 */
+	pkt = (pkt_8002 *)(rbuf + 8);
+
+	printf("pkt version 0x%x serial %s\n", 
+	       pkt->firmware_version, pkt->board_serial_number);
+out_err:
+	return err;
+}
+
+int main(int argc, char *argv[])
+{
+	int 		fd, err, iter;
+	void   	       *handle;
+	cpqci_key	key;
+
+	/* open a channel */
+//	err = CpqCiCreate(&key, &handle, 3, 4096, 3, 4096, 0, NULL);
+	fd = open("/dev/hpilo/d0ccb0", O_RDWR);
+	if (fd == -1) {
+		printf("failed to create a channel %d\n", errno);
+		exit(errno);
+	}
+
+	/* process command(s) */
+	iter = 1;
+	do {
+		iter--;
+		err = simple_pkt(handle, 0x0002, fd);
+	} while (iter && !err);
+
+	/* if (err) { goto out; } err = simple_pkt(handle, ...); */
+out:
+	/* close channel */
+	//CpqCiClose(handle);
+	close(fd);
+	exit(err);
+}

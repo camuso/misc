@@ -1,0 +1,55 @@
+
+scsi_inq -vvv /dev/sdN
+
+does simply inquiry, inquiry pg83/80, tur, read capacity, report target port groups commands. ... or tries to.
+
+
+
+Calls "old"/deprecated:
+int scsi_cmd_ioctl()
+:
+                /*
+                 * old junk scsi send command ioctl
+                 */
+                case SCSI_IOCTL_SEND_COMMAND:
+                        printk(KERN_WARNING "program %s is using a deprecated SCSI ioctl, please convert it to SG_IO\n", current->comm);
+                        err = -EINVAL;
+                        if (!arg)
+                                break;
+
+                        err = sg_scsi_ioctl(file, q, bd_disk, arg);
+                        break;
+
+for sg_scsi_ioctl:
+ *   -  If a Unix error occurs (e.g. ENOMEM) then the user will receive
+ *      a negative return and the Unix error code in 'errno'.
+ *      If the SCSI command succeeds then 0 is returned.
+ *      Positive numbers returned are the compacted SCSI error codes (4
+ *      bytes in one int) where the lowest byte is the SCSI status.
+
+So a negative status is internal kernel error, non-zero positive value has
+scsi status embedded in 4 byte return code.  For negative status, need to
+output errno to see what the error was.
+
+
+
+When switching to the preferred/supported SG_IO interface, you come thru the same scsi_cmd_ioctl()
+above but then via the following:
+
+                case SG_IO: {
+                        struct sg_io_hdr hdr;
+
+                        err = -EFAULT;
+                        if (copy_from_user(&hdr, arg, sizeof(hdr)))
+                                break;
+                        err = sg_io(file, q, bd_disk, &hdr);
+                        if (err == -EFAULT)
+                                break;
+
+                        if (copy_to_user(arg, &hdr, sizeof(hdr)))
+                                err = -EFAULT;
+                        break;
+                }
+
+
+

@@ -1,0 +1,1040 @@
+#!/bin/bash
+#
+# Copyright 2004-2007 Hewlett-Packard Development Company, L.P.
+#
+# Permission to use, copy, modify, and distribute this software and its
+# documentation under the terms of the GNU General Public License is hereby
+# granted. No representations are made about the suitability of this software
+# for any purpose. It is provided "as is" without express or implied warranty.
+# See the GNU General Public License for more details.
+#
+# NIC Information Collector (NIC)
+#
+# Author: Tony Cureington - 09/03/2004
+#
+# Latest nic version is available at
+# http://nicdiag.cvs.sourceforge.net/*checkout*/nicdiag/utils/nic
+#
+#
+# The NIC (NIC Information Collector) script collects network information 
+# necessary to investigate network related problems. Some of the information
+# collected, about 1%, is specific to HP ProLiant servers - if your not 
+# running an HP ProLiant server, that HP specific info will not be available.
+# This is not a problem because the other 99% will save many trips between
+# QA groups and customer support engineers requesting more and more network 
+# related information that was not gathered to begin with.
+#
+# Run "./nic" to get a list of command line options.
+#
+# The typical usage is "./nic -z -f filename", which creates a gzipped file
+# named "filename.gz".
+#
+#
+# $Id: nic,v 2.2 2007/03/13 19:07:05 tonycu Exp $
+#
+# VERSION    AUTHOR         CHANGES
+# see CVS log for author & changes
+#
+
+
+nic_version=`echo '$Revision: 2.2 $' | cut -d' ' -f 2`
+nic_release_date=`echo '$Id: nic,v 2.2 2007/03/13 19:07:05 tonycu Exp $' | cut -d' ' -f 4`
+HEADER="#####################################################################"
+SUBHEADER1="=============================="
+SUBHEADER2="------------------------------"
+FOOTER=""
+TMP_FILE=/tmp/temp.$$
+PATH=$PATH:/sbin:/usr/sbin
+COPYRIGHT="Copyright 2004-2007 Hewlett-Packard Development Company, L.P."
+
+snmp_community=""
+snmp_address="localhost"
+only_print_toc=0
+
+subs_to_call="version_info           ifconfig_info          route_info                        bonding_info           vlan_info              nicinfo                           dhcp_config            hplog                  config_files                      lspci_info             ethtool_info           mii_info                          hwcfg_info             netstat_info           proc_net_files                    proc_files             hp_pel_info            hp_vt_info                        lsmod_info             iptables_info          collect_logfiles		      netxen_info"
+
+snmpd_cfg_files=""    # populated in snmpd_config, used in walk_mibs
+
+################################################################################
+# all added functions to print info should look like this
+#
+#   dummy () 
+#   {
+#      # a comment here
+#      title="what will be printed for the toc/header"
+#
+#      print_title_header $title
+#      if [ $? -eq 1 ]; then
+#         return;
+#      fi
+#
+#      # the code goes here
+#
+#      echo $FOOTER
+#   }
+#
+
+
+################################################################################
+print_title_header () 
+{
+   # print the title. return 1 if title printed and 0 if header
+   # printed
+   if [ $only_print_toc -eq 1 ]; then
+      echo $title
+      return 1;
+   fi
+
+   echo $HEADER
+   echo "#=#" $title
+   echo $HEADER
+   echo ""
+   return 0
+}
+
+################################################################################
+version_info () 
+{
+   # report version of various packages or kernel modules
+   title="distribution and driver/package version info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   uname -a
+   cat /etc/*release* 2>/dev/null
+   uptime
+
+   pkg_name="e1000 e1000e igb tg3 netxtreme2 nx_nic nx_lsa nx_tools mlnx_en bonding vlan vlan_init 8021q"
+   pkg_name="$pkg_name cmanic hpasm hprsm hpsmh"
+
+   echo ""
+   for a_pkg in $pkg_name; do
+      rpm -q $a_pkg &>/dev/null
+      if [ $? -eq 0 ]; then
+         rpm -q $a_pkg
+         ls /etc/rc.d/rc?.d/*$pkg_name 2>/dev/null
+         echo ""
+      else
+         modinfo $a_pkg &>/dev/null
+         if [ $? -eq 0 ]; then
+            echo -n "$a_pkg "
+            modinfo $a_pkg | grep version 2>/dev/null
+            if [ $? -eq 1 ]; then
+               echo "module version not available via modinfo"
+            fi
+         else
+            echo "$a_pkg is not installed"
+         fi
+      fi
+   done
+
+   echo ""
+   rpm -qa | grep snmp 2>/dev/null
+
+   # is SELinux enabled?
+   echo ""
+   which selinuxenabled &>/dev/null
+   if [ $? -eq 0 ]; then
+      selinuxenabled
+      # retruns 0 if SELinux is enabled and 1 if it is not enabled
+      if [ $? -eq 0 ]; then
+         echo "SELinux is ENABLED"
+      else
+         echo "SELinux is DISABLED"
+      fi
+   fi
+
+   echo ""
+
+   echo $FOOTER
+}
+
+################################################################################
+ifconfig_info () 
+{
+   # ifconfig -a results
+   title="ifconfig -a"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   ifconfig -a 
+
+   echo $FOOTER
+}
+
+################################################################################
+route_info () 
+{
+   # route -n
+   title="route -n"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   route -n
+
+   echo $FOOTER
+}
+
+################################################################################
+bonding_info () 
+{
+   # bonding proc files, we want them here in case /proc is not collected
+   title="bonding /proc files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   # older bonding driver
+   for file in `ls /proc/net/bond*/info 2>/dev/null`; do
+      echo $file
+      echo $SUBHEADER1
+      cat $file
+      echo ""
+   done
+   # new bonding driver
+   for file in `find /proc/net/bonding/ -type f 2>/dev/null`; do
+      echo $file
+      echo $SUBHEADER1
+      cat $file
+      echo ""
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+vlan_info () 
+{
+   # bonding proc files, we want them here in case /proc is not collected
+   title="vlan.conf & /proc files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   if [ -e /etc/vlan.conf ]; then
+      echo "/etc/vlan.conf"
+      echo $SUBHEADER1
+      cat /etc/vlan.conf
+      echo ""
+   fi
+
+   if [ -e /proc/vlan ]; then
+      for file in `find /proc/net/vlan/ -type f 2>/dev/null`; do
+         echo $file
+         echo $SUBHEADER1
+         cat $file
+         echo ""
+      done
+   fi
+
+   echo $FOOTER
+}
+
+################################################################################
+nicinfo () 
+{
+   title="/proc nicinfo files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   # print nicinfo ethX files
+
+   if [ -x /opt/compaq/nic/bin/hpetfe ]; then
+      echo "NOTE: Using hpetfe to collect info."
+      echo ""
+      for iface in \
+         `/sbin/ifconfig -a |grep -E "^eth|^vmnic" | cut -d" " -f 1 2>/dev/null`
+      do
+         echo $iface
+         echo $SUBHEADER1
+         /opt/compaq/nic/bin/hpetfe -i $iface
+         echo ""
+      done
+   else
+      for file in `ls /proc/net/nicinfo/eth*.info                \
+                   ls /proc/net/nicinfo/vmnic*.info 2>/dev/null  \
+                   ls /proc/net/PRO_LAN_Adapters/eth*.info       \
+                   ls /proc/net/PRO_LAN_Adapters/vmnic*.info 2>/dev/null`; do
+         echo $file
+         echo $SUBHEADER1
+         cat $file
+         echo ""
+      done
+   fi
+
+   echo $FOOTER
+}
+
+################################################################################
+dhcp_config () 
+{
+   title="dhcp config files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   dhcp_files="/etc/dhcpd.conf /etc/dhcpd.conf.pxe /etc/dhclient.conf
+               /var/run/dhcpd.pid /var/run/dhclient.pid"
+   dhcp_dirs="/var/lib/dhcp"
+
+   echo "dhcp version"
+   echo ""
+   echo $SUBHEADER1
+   rpm -qa | grep dhcp 2>/dev/null
+   echo ""
+
+   echo "dhcp files"
+   echo $SUBHEADER1
+   echo ""
+   for file in $dhcp_files; do
+      if [ -f $file ]; then
+         echo $file
+         echo $SUBHEADER2
+         cat $file
+         echo ""
+      fi
+   done
+
+   # print contents of each file in dhcp dirs
+   echo "dhcp dirs"
+   echo $SUBHEADER1
+   echo ""
+   for adir in $dhcp_dirs; do
+      if [ -d $adir ]; then
+         for file in `find $adir -type f 2>/dev/null`; do
+            echo $file
+            echo $SUBHEADER2
+            cat $file
+            echo ""
+         done
+      fi
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+hplog () 
+{
+   title="hplog -i"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   if [ -x /sbin/hplog ]; then
+      /sbin/hplog -i
+   else
+      echo "hplog not available"
+   fi
+
+   echo $FOOTER
+}
+
+################################################################################
+config_files () 
+{
+   title="network interface config files"
+   # get ifcfg-* files; ie ifcfg-eth0
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   echo "ifcfg-* files"
+   echo $SUBHEADER1
+   echo ""
+   for file in `find /etc/sysconfig -name "ifcfg-*" 2>/dev/null`; do
+      echo $file
+      echo $SUBHEADER2
+      cat $file
+      echo ""
+   done
+
+   echo ""
+   echo "/etc/module* files"
+   echo $SUBHEADER1
+   echo ""
+   for file in `ls /etc/module* 2>/dev/null`; do
+      echo $file
+      echo $SUBHEADER2
+      cat $file
+      echo ""
+   done
+
+   echo ""
+   echo "/etc/modprobe.* files"
+   echo $SUBHEADER1
+   echo ""
+   for file in `ls /etc/modprobe.* 2>/dev/null`; do
+      # don't try to print /etc/modprobe.d dir
+      if [ -e $file ]; then
+         echo $file
+         echo $SUBHEADER2
+         cat $file
+         echo ""
+      fi
+   done
+
+   echo ""
+   echo "/etc/modprobe.d/* files"
+   echo $SUBHEADER1
+   echo ""
+   for file in `ls /etc/modprobe.d/* 2>/dev/null`; do
+      if [ -e $file ]; then
+         echo $file
+         echo $SUBHEADER2
+         cat $file
+         echo ""
+      fi
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+snmpd_config () 
+{
+   title="snmpd.conf files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   for cfg in `find /etc /var -type f -name snmpd.conf 2>/dev/null`; do
+      # don't pick up man pages and such
+      base_cfg=`basename $cfg`
+    
+      if [ "$base_cfg" == "snmpd.conf" ]; then
+         snmpd_cfg_files="$snmpd_cfg_files $cfg"
+         echo "$cfg"
+         echo $SUBHEADER1
+         cat $cfg
+         echo -e "\n\n"
+      fi
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+check_snmp_community () 
+{
+   # $1=ro|rwcommunity; $2=community_name; $3=ip_address
+   # look for 127.0.0.1, localhost, and "open" community (no address) first
+   if [ -z "$3" ]; then
+      # "open" community
+      second_choice_comm=$2
+      snmp_address="localhost"
+   elif ([ "$3" = "localhost" ] || [ "$3" = "127.0.0.1" ]); then
+      snmp_community=$2
+      snmp_address=$3
+   else
+      # check for local network interface address and save it in case we
+      # don't have a localhost comm 
+      if [ -z "$local_ip" ]; then
+         local_ip=`ifconfig -a |grep inet`
+      fi
+      echo "$local_ip" | grep "$3" &>/dev/null
+      if [ $? -eq 0 ]; then
+         second_choice_comm=$2
+         snmp_address=$3
+      fi
+   fi
+}
+
+################################################################################
+walk_mibs () 
+{
+   # get the snmp community name if not provided by the user
+   if [ -z "$snmp_community" ]; then
+      for cfg_file in $snmpd_cfg_files; do
+         # search for snmp community to access local system with, i.e.
+         #   rocommunity public
+         #   rocommunity public  127.0.0.1
+         #   rwcommunity private localhost
+         #   rwcommunity private 10.10.10.10 # eth0
+         snmp_comms=$(egrep '(rocommunity|rwcommunity)' $cfg_file | \
+                      egrep -v "^[[:space:]]*#" |cut -d'#' -f1)
+         if [ -z "$snmp_comms" ]; then
+            continue;
+         fi
+         snmp_comms=`echo "$snmp_comms" | tr '\n' ':'`
+
+         comm_line=${snmp_comms%%:*}
+         snmp_comms=${snmp_comms#*:}
+
+         while [ -n "$comm_line" ]; do
+            check_snmp_community $comm_line
+            if [ -n "$snmp_community" ]; then
+               # community name found
+               break;
+            fi
+            comm_line=${snmp_comms%%:*}
+            snmp_comms=${snmp_comms#*:}
+         done
+
+         if [ -n "$snmp_community" ]; then
+            break;
+         fi
+      done
+      if [ -z "$snmp_community" ]; then
+         if [ -n "$second_choice_comm" ]; then
+            snmp_community=$second_choice_comm
+         else
+            snmp_community="public"
+         fi
+      fi
+   fi
+
+   title="MIB walk of $snmp_address with \"$snmp_community\" community"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   rpm -q cmanic >/dev/null
+   result=$?
+   if [ $result -eq 0 ]; then
+      echo "cmanic mib walk"
+      echo $SUBHEADER1
+      snmpwalk -c $snmp_community -v 1 $snmp_address .enterprises.232.18 2>&1
+      echo ""
+   else
+      echo "cmanic package not installed"
+      echo ""
+   fi
+
+   echo ".1 mib walk"
+   echo $SUBHEADER1
+   snmpwalk -c $snmp_community -v 1 $snmp_address .1 2>&1
+
+   echo $FOOTER
+}
+
+################################################################################
+lsmod_info () 
+{
+   title="lsmod info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   lsmod
+
+   echo $FOOTER
+}
+
+################################################################################
+iptables_info () 
+{
+   title="iptables info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   # quick view
+   echo "iptables -L"
+   echo $SUBHEADER1
+   iptables -L
+   echo ""
+
+   # detail view
+   echo "iptables -n -v -L"
+   echo $SUBHEADER1
+   iptables -n -v -L
+   echo ""
+
+   echo $FOOTER
+}
+
+################################################################################
+collect_logfiles () 
+{
+   title="various logfiles"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   if [ -e /var/spool/compaq/cma.log ]; then
+      echo "nic strings in cma.log"
+      echo $SUBHEADER1
+      grep nic /var/spool/compaq/cma.log
+
+      echo ""
+      echo "last 500KB of cma.log"
+      echo $SUBHEADER1
+      tail --bytes=500000 /var/spool/compaq/cma.log
+   fi
+
+   echo ""
+   echo "dmesg"
+   echo $SUBHEADER1
+   dmesg
+
+   if [ -f /var/log/boot.log ]; then
+      echo ""
+      echo "last 200KB of /var/log/boot.log"
+      echo $SUBHEADER1
+      tail --bytes=200000 /var/log/boot.log
+   fi
+
+   if [ -f /var/log/boot.msg ]; then
+      echo ""
+      echo "last 200KB of /var/log/boot.msg"
+      echo $SUBHEADER1
+      tail --bytes=200000 /var/log/boot.msg
+   fi
+
+   echo ""
+   echo "last 500KB of /var/log/messages"
+   echo $SUBHEADER1
+   tail --bytes=500000 /var/log/messages
+
+   echo $FOOTER
+}
+
+################################################################################
+lspci_info () 
+{
+   title="lspci info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   echo "lspci -nv"
+   echo $SUBHEADER1
+   lspci -nv
+   echo ""
+   echo "lspci -mxv"
+   echo $SUBHEADER1
+   lspci -mxv
+   echo ""
+
+   echo $FOOTER
+}
+
+################################################################################
+ethtool_info () 
+{
+   title="ethtool info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   for iface in \
+      `/sbin/ifconfig -a |grep -E "^eth|^vmnic" |cut -d" " -f 1 2>/dev/null`; do
+      echo "$iface"
+      echo $SUBHEADER1
+      ethtool -i $iface 2>&1
+      ethtool $iface 2>&1
+      ethtool -S $iface 2>&1
+      echo ""
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+netxen_info () 
+{
+   title="NetXen info"
+   driver=""
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   if [ ! -f /opt/netxen/showvpd ];then
+	return;
+   fi
+
+   for iface in \
+      `/sbin/ifconfig -a |grep -E "^eth|^vmnic" |cut -d" " -f 1 2>/dev/null`; do
+      driver=`ethtool -i $iface|grep driver | cut -d: -f2`	
+      if [ "$driver" = " nx_nic" ];then
+      	echo "$iface"
+      	echo $SUBHEADER1
+      	/opt/netxen/showvpd -i $iface 2>&1
+      	echo ""
+      fi
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+mii_info () 
+{
+   title="mii info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   mii_diag=`which mii-diag 2>/dev/null`
+   mii_tool=`which mii-tool 2>/dev/null`
+
+   if [ -z ${mii_diag} ]; then
+      echo "mii-diag is not present on this system."
+      if [ -z ${mii_tool} ]; then
+         echo "mii-tool is not present on this system."
+         echo ""
+         echo $FOOTER
+         return
+      fi
+   elif [ -z ${mii_tool} ]; then
+         echo "mii-tool is not present on this system."
+   fi
+
+   for iface in \
+      `/sbin/ifconfig -a |grep -E "^eth|^vmnic" |cut -d" " -f 1 2>/dev/null`; do
+      echo "$iface"
+      echo $SUBHEADER1
+      if [ ! -z ${mii_tool} ]; then
+         echo "MII TOOL ============="
+         $mii_tool -vvv  $iface 2>&1
+      fi
+      if [ ! -z ${mii_diag} ]; then
+         echo "MII DIAG ============="
+         $mii_diag -vvv $iface 2>&1
+      fi
+      echo ""
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+hwcfg_info () 
+{
+   title="hwcfg info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   for file in `find /etc/sysconfig/hardware/ -name "hwcfg-*" -type f 2>/dev/null`; do
+      echo "$file"
+      echo $SUBHEADER1
+      cat $file
+      echo ""
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+netstat_info () 
+{
+   title="netstat -lap"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   netstat -lap 2>&1
+
+   echo $FOOTER
+}
+
+################################################################################
+proc_net_files () 
+{
+   title="/proc/net files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   for file in `find /proc/net/ -type f 2>/dev/null`; do
+      echo "$file"
+      echo $SUBHEADER1
+      cat $file
+      echo ""
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+proc_files () 
+{
+   title="misc /proc files"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   files_to_dump="cpuinfo devices interrupts iomem loadavg meminfo mtrr pci swaps vmstat"
+   for file in $files_to_dump; do
+      echo "/proc/$file"
+      echo $SUBHEADER1
+      if [ -e /proc/$file ]; then
+         cat /proc/$file
+      else
+         echo "/proc/$file does not exist"
+      fi
+      echo ""
+   done
+
+   echo $FOOTER
+}
+
+################################################################################
+hp_pel_info () 
+{
+   title="HP ProLiant Essentials Licensing Info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   rpm -q hp-pel
+   echo ""
+
+   if [ ! -e /opt/hp/hp-pel/nalicense ]; then
+      echo "HP ProLiant Essentials Licensing package not installed"
+      echo $FOOTER
+      return;
+   fi
+
+   echo "HP ProLiant Essentials Licenses"
+   echo $SUBHEADER1
+   /opt/hp/hp-pel/nalicense -d 2>&1
+
+   echo $FOOTER
+}
+
+################################################################################
+hp_vt_info () 
+{
+   title="HP Virus Throttle Info"
+
+   print_title_header $title
+   if [ $? -eq 1 ]; then
+      return;
+   fi
+
+   if [ ! -e /opt/hp/hp-vt/hp-vtd ]; then
+      echo "HP ProLiant Virus Throttle package not installed"
+      echo $FOOTER
+      return;
+   fi
+
+   rpm -q hp-vt
+   echo ""
+
+   echo "Current Status"
+   echo $SUBHEADER1
+   /opt/hp/hp-vt/hp-vt-status -status
+   echo ""
+
+   echo "iptables -L"
+   echo $SUBHEADER1
+   iptables -L
+   echo ""
+
+   echo "iptables -nL -v"
+   echo $SUBHEADER1
+   iptables -nL -v
+   echo ""
+
+   echo "/etc/opt/hp/hp-vt/hp-vt.conf"
+   echo $SUBHEADER1
+   cat /etc/opt/hp/hp-vt/hp-vt.conf
+   echo ""
+
+   echo "last 500 KB of /var/opt/hp/hp-vt/hp-vt.log"
+   echo $SUBHEADER1
+   tail --bytes=500000 /var/opt/hp/hp-vt/hp-vt.log
+
+   echo $FOOTER
+}
+
+
+################################################################################
+usage () 
+{
+   echo ""
+   echo "NIC Information Collector (NIC) version $nic_version"
+   echo ""
+   echo "usage: $0 [-f filename [-z]] [-s | -c ] [-v]"
+   echo "       -c specify snmp community"
+   echo "       -f create file named filename containing results"
+   echo "       -s don't collect SNMP mibwalk"
+   echo "       -v print version and exit"
+   echo "       -z compress the file using gzip"
+   echo ""
+   echo "typical usage: $0 -z -f filname"
+   echo ""
+}
+
+################################################################################
+check_files () 
+{
+
+   if [ ! -z "$fopt" ]; then
+      if [ -e $fval ]; then
+         echo ""
+         echo -n "$fval file exists, overwrite [y/n]? "
+         read ans
+         if [ "$ans" != "y" ]; then
+            exit 1
+         fi
+      fi
+   fi
+
+   if [ ! -r /var/log/messages ]; then
+      echo ""
+      echo "ERROR: you don't have permissions to read /var/log/messages"
+      exit 1
+   fi
+
+}
+
+################################################################################
+## MAIN
+################################################################################
+parms=$*
+
+echo " "
+echo $COPYRIGHT
+echo " "
+
+if [ $EUID != 0 ]; then
+   echo " "
+   echo "ERROR: $0 requires root privilages"
+   echo " "
+   exit 1
+fi
+
+# parse the options, let getopt report the errors for us
+OPTERR=1
+while getopts "c:f:psvz" option; do
+   case $option in
+      c) snmp_community=$OPTARG
+         ;;
+      f) fopt=1
+         fval=$OPTARG
+         ;;
+      s) sopt=1
+         ;;
+      v) 
+         echo ""
+         echo "NIC Information Collector (NIC) version $nic_version"
+         echo ""
+         exit 0
+         ;;
+      z) zopt=1
+         ;;
+     \?) usage
+         exit 1
+         ;;
+   esac
+done
+shift $(($OPTIND - 1))
+
+if [ $# -ne 0 ]; then
+   echo "ERROR: extra argument(s) found: $@"
+   usage
+   exit 1
+fi
+
+check_files
+
+
+# redirect stdout to specified file
+if [ ! -z "$fopt" ]; then
+   echo ""
+   echo "Collecting information, this may take several minutes..."
+   exec 1>$fval
+fi
+
+
+echo $HEADER
+echo "NIC Information Collector (NIC) version $nic_version ($nic_release_date)"
+echo ""
+echo "The latest version of this script is available from"
+echo "http://nicdiag.cvs.sourceforge.net/*checkout*/nicdiag/utils/nic,"
+echo "and is part of the NICDiag package at http://nicdiag.sourceforge.net/."
+echo " "
+echo "parameters: $parms"
+echo "current time: " `date`
+
+# generate the table of contents for each sub
+echo  ""
+echo "Table of Contents"
+echo "================="
+only_print_toc=1
+for asub in $subs_to_call; do
+   $asub
+done
+
+# call each sub to print info
+only_print_toc=0
+echo -e "\n\n"
+for asub in $subs_to_call; do
+   $asub
+done
+
+# print snmp info
+if [ -z "$sopt" ]; then
+   snmpd_config
+   walk_mibs
+fi
+
+
+echo "END OF NIC REPORT"
+
+if [ ! -z "$fopt" ]; then
+   exec 1>$(tty)
+   echo "NIC file $fval created"
+   if [ ! -z "$zopt" ]; then
+      gzip -9c $fval > $fval.gz
+      echo "NIC gzip file $fval.gz created"
+   fi
+fi
+
+# remove tmp files
+rm -f $TMP_FILE
+

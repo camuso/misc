@@ -1,0 +1,29 @@
+#!/bin/bash
+
+usagestr=$(
+cat <<EOF
+
+$0 localversion
+
+You must supply the localversion
+
+\0
+EOF
+)
+
+usage() {
+	echo -e "$usagestr"
+	exit
+}
+
+[ $# -gt 0 ] || usage
+
+# make rh-configs-prep
+# cp -fv configs/kernel-3.10.0-x86_64.config .config
+kmake "$1"
+grub2-mkconfig -o $(find /boot -name grub.cfg)
+grub2-bootonce
+read -p "Select kernel: " kernel
+grub2-bootonce $kernel
+read -p "Reboot y/n ? : " reb
+[[ "$reb" == "y" ]] && /usr/sbin/reboot

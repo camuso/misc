@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# ../makeipmi
+#
+
+cmdline=../makeipmi
+
+usagestr=$(
+cat <<EOF
+
+../makeipmi
+\0
+EOF
+)
+
+usage() {
+	echo -e "$usagestr"
+	exit
+}
+
+[ $# -gt 0 ] && usage
+
+make M=drivers/char/ipmi
+
+cd /usr/lib/modules/$(uname -r)/kernel/drivers/char/ipmi/
+
+# save the original kmods
+#
+for f in $(ls -1 *.ko); do
+	fname=$(basename --suffix=.ko $f)
+	#
+	# if we already saved the originals, leave them alone.
+	#
+	[[ -e "$fname".old ]] || mv -v $f $fname.old
+done
+
+cd -
+rsync -Pvat  drivers/char/ipmi/*.ko /usr/lib/modules/$(uname -r)/kernel/drivers/char/ipmi/.

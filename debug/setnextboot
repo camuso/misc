@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+# ../setnextboot
+#
+
+cmdline=../setnextboot
+
+usagestr=$(
+cat <<EOF
+
+../setnextboot
+\0
+EOF
+)
+
+usage() {
+	echo -e "$usagestr"
+	exit
+}
+
+[ $# -gt 0 ] && usage
+
+grub2-bootonce
+read -p "Select kernel: " kernel
+grub2-bootonce $kernel
+read -p "Reboot y/n ? : " reb
+[[ "$reb" == "y" ]] && /usr/sbin/reboot
+

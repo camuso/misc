@@ -1,0 +1,9 @@
+#!/bin/bash
+#
+# ../test
+#
+modprobe -v acpi_ipmi
+lsmod | grep ipmi
+set -x
+ndctl list --dimms --idle --health
+set +x

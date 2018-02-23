@@ -1,0 +1,5 @@
+#!/bin/bash
+
+dmesg | grep --color -Ei 'ipmi|\* |acpi'
+read -n1 -p "Press any key to continue ..."
+echo
