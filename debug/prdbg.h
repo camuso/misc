@@ -10,7 +10,7 @@
 
 #define prdbg(fmt, ...) \
 do { \
-       printk(KERN_INFO "** %s():%04d " fmt, __func__, __LINE__, ##__VA_ARGS__); \
+       printk(KERN_INFO "** %s():%d " fmt, __func__, __LINE__, ##__VA_ARGS__); \
 } while (0)
 
 #define prcaller() \
@@ -21,7 +21,7 @@ do { \
 #define prentry() \
 do { \
 	printk(KERN_INFO "\n"); \
-	printk(KERN_INFO DBGPFX "%s():%04d Caller %pS\n", \
+	printk(KERN_INFO DBGPFX "%s():%d Caller %pS\n", \
 			__func__, __LINE__, __builtin_return_address(0)); \
 } while (0)
 
