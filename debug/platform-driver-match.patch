@@ -1,0 +1,145 @@
+commit f3c0e350a256bec9fa64fab964a31432c35b35a7
+Author: Tony Camuso <tcamuso@redhat.com>
+Date:   Fri Apr 27 09:23:50 2018 -0400
+
+    debug-5
+
+diff --git a/drivers/base/bus.c b/drivers/base/bus.c
+index 4dccc33..aa77064 100644
+--- a/drivers/base/bus.c
++++ b/drivers/base/bus.c
+@@ -292,7 +292,14 @@ int bus_for_each_dev(struct bus_type *bus, struct device *start,
+ 	struct klist_iter i;
+ 	struct device *dev;
+ 	int error = 0;
++	struct device_driver *drv = data;
+ 
++	if (drv && drv->name) {
++		if (!(strcmp(drv->name, "ipmi_si"))) {
++			prentry();
++			prdbg("bus->name: %s\n", bus->name);
++		}
++	}
+ 	if (!bus || !bus->p)
+ 		return -EINVAL;
+ 
+@@ -725,10 +732,10 @@ int bus_add_driver(struct device_driver *drv)
+ 	}
+ 
+ 	klist_add_tail(&priv->knode_bus, &bus->p->klist_drivers);
+-	if (!(strcmp(drv->name, "ipmi_si"))) {
+-		prdbg("if it exists, calling driver's autoprobe\n");
+-	}
+ 	if (drv->bus->p->drivers_autoprobe) {
++		if (!(strcmp(drv->name, "ipmi_si"))) {
++			prdbg("autoprobe is set, so calling driver_attach\n");
++		}
+ 		error = driver_attach(drv);
+ 		if (error) {
+ 			if (!(strcmp(drv->name, "ipmi_si"))) {
+diff --git a/drivers/base/dd.c b/drivers/base/dd.c
+index a22cb10..91c0818 100644
+--- a/drivers/base/dd.c
++++ b/drivers/base/dd.c
+@@ -388,7 +388,9 @@ static int really_probe(struct device *dev, struct device_driver *drv)
+ 			 drv->bus->name, __func__, dev_name(dev), drv->name);
+ 	}
+ 
+-	prdbg("really_probe(): succeeded.\n");
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		prdbg("really_probe(): succeeded.\n");
++	}
+ 	goto done;
+ 
+ probe_failed:
+@@ -596,8 +598,23 @@ static int __driver_attach(struct device *dev, void *data)
+ 	 * is an error.
+ 	 */
+ 
+-	if (!driver_match_device(drv, dev))
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		if (drv->bus->match) {
++			prdbg("calling the %s drv->bus->match routine: %pS\n",
++				drv->name, drv->bus->match);
++			prdbg("\tfor bus type: %s\n", drv->bus->name);
++		}
++		else {
++			prdbg("no drv->bus->match routine so just return zero.\n");
++		}
++	}
++
++	if (!driver_match_device(drv, dev)) {
++		if (!(strcmp(drv->name, "ipmi_si"))) {
++			prdbg("%s could not find a match!\n", drv->name);
++		}
+ 		return 0;
++	}
+ 
+ 	if (dev->parent)	/* Needed for USB */
+ 		device_lock(dev->parent);
+diff --git a/drivers/base/platform.c b/drivers/base/platform.c
+index 1ce6abf..eb2f8b8 100644
+--- a/drivers/base/platform.c
++++ b/drivers/base/platform.c
+@@ -756,17 +756,58 @@ static int platform_match(struct device *dev, struct device_driver *drv)
+ 	struct platform_device *pdev = to_platform_device(dev);
+ 	struct platform_driver *pdrv = to_platform_driver(drv);
+ 
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		prentry();
++	}
++
+ 	/* Attempt an OF style match first */
+-	if (of_driver_match_device(dev, drv))
++	if (of_driver_match_device(dev, drv)) {
++		if (!(strcmp(drv->name, "ipmi_si"))) {
++			prdbg("of_driver_match_device SUCCESS\n");
++		}
+ 		return 1;
++	}
++
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		prdbg("of_driver_match_device NO MATCH\n");
++	}
+ 
+ 	/* Then try ACPI style match */
+-	if (acpi_driver_match_device(dev, drv))
++	if (acpi_driver_match_device(dev, drv)) {
++		if (!(strcmp(drv->name, "ipmi_si"))) {
++			prdbg("acpi_driver_match_device SUCCESS\n");
++		}
+ 		return 1;
++	}
++
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		prdbg("acpi_driver_match_device NO MATCH\n");
++	}
+ 
+ 	/* Then try to match against the id table */
+-	if (pdrv->id_table)
++	if (pdrv->id_table) {
++		if (!(strcmp(drv->name, "ipmi_si"))) {
++			if (platform_match_id(pdrv->id_table, pdev) != NULL) {
++				prdbg("platform_match_id(pdrv->id_table, pdev) SUCCESS\n");
++			}
++		}
+ 		return platform_match_id(pdrv->id_table, pdev) != NULL;
++	}
++
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		prdbg("(platform_match_id(pdrv->id_table, pdev) != NULL) NO MATCH\n");
++	}
++
++	if (!(strcmp(drv->name, "ipmi_si"))) {
++		prdbg("\tpdev->name: %s == drv->name: %s\n", pdev->name, drv->name);
++		if (strcmp(pdev->name, drv->name) == 0) {
++			prdbg("(strcmp(pdev->name, drv->name) == 0) SUCCESS\n");
++		}
++		else {
++			prdbg("(strcmp(pdev->name, drv->name) == 0) NO MATCH\n");
++			prdbg("EXIT with NO MATCH\n");
++		}
++	}
+ 
+ 	/* fall-back to driver name match */
+ 	return (strcmp(pdev->name, drv->name) == 0);
