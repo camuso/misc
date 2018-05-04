@@ -1,0 +1,31 @@
+drivers/char/ipmi/ipmi_msghandler.c
+: drivers/base/driver.c :: driver_register
+
+drivers/char/ipmi/ipmi_si_intf.c :: platform_driver_register
+: drivers/base/platform.c :: driver_register
+: : drivers/base/bus.c :: bus_add_driver
+: : : drivers/base/dd.c :: driver_attach
+: : : : drivers/base/bus.c :: bus_for_each_dev
+: : : : : drivers/base/bus.c :: __driver_attach
+: : : : : : drivers/base/platform.c :: platform_match
+: : : : : : drivers/base/dd.c :: driver_probe_device
+
+
+
+
+struct bus_type platform_bus_type = { 
+        .name           = "platform",
+        .dev_attrs      = platform_dev_attrs,
+        .match          = platform_match,
+        .uevent         = platform_uevent,
+        .pm             = &platform_dev_pm_ops,
+};
+
+
+[   13.722270] ** platform_match():798 (platform_match_id(pdrv->id_table, pdev) != NULL) NO MATCH
+[   13.722272] ** platform_match():802  pdev->name: dmi-ipmi-si == drv->name: ipmi_si
+[   13.722273] ** platform_match():807 (strcmp(pdev->name, drv->name) == 0) NO MATCH
+[   13.722274] ** platform_match():808 EXIT with NO MATCH
+
+Need driver_override field!!!!
+
