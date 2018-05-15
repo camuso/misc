@@ -1,0 +1,173 @@
+From 12429e62d4070585a511ee8491db6d38f2b2fac5 Mon Sep 17 00:00:00 2001
+From: Tony Camuso <tcamuso@redhat.com>
+Date: Mon, 14 May 2018 07:09:00 -0400
+Subject: [PATCH 3/3] debug-3
+
+Signed-off-by: Tony Camuso <tcamuso@redhat.com>
+---
+ drivers/base/platform.c      | 24 ++++++++++++++++++++++++
+ drivers/char/ipmi/ipmi_dmi.c | 35 ++++++++++++++++++++++++++++++++++-
+ 2 files changed, 58 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/base/platform.c b/drivers/base/platform.c
+index cacf877..61729b1 100644
+--- a/drivers/base/platform.c
++++ b/drivers/base/platform.c
+@@ -300,11 +300,35 @@ int platform_device_add_resources(struct platform_device *pdev,
+ 				  const struct resource *res, unsigned int num)
+ {
+ 	struct resource *r = NULL;
++	bool b_name = (pdev->name) ? true : false;
++	bool b_ipmi;
++	int idx;
++
++	if (b_name)
++		b_ipmi = (strstr(pdev->name, "ipmi")) ? true : false;
++
++	if (b_ipmi) {
++		prentry();
++		prdbg("pdev->name: %s\n", pdev->name);
++		if (pdev->driver_override)
++			prdbg("pdev->driver_override: %s\n", pdev->driver_override);
++		else
++			prdbg("pdev->driver_override: NULL\n");
++	}
+ 
+ 	if (res) {
++		prdbg("number of resources: %d\n", num);
+ 		r = kmemdup(res, sizeof(struct resource) * num, GFP_KERNEL);
+ 		if (!r)
+ 			return -ENOMEM;
++		if (b_ipmi) {
++			for (idx = 0; idx < num; ++idx) {
++				prdbg("r[%d].name : %s\n", idx, r[idx].name);
++				prdbg("r[%d].start: %08x\n", idx, (u32)r[idx].start);
++				prdbg("r[%d].end  : %08x\n", idx, (u32)r[idx].end);
++				prdbg("r[%d].flags: %08x\n", idx, (u32)r[idx].flags);
++			}
++		}
+ 	}
+ 
+ 	kfree(pdev->resource);
+diff --git a/drivers/char/ipmi/ipmi_dmi.c b/drivers/char/ipmi/ipmi_dmi.c
+index 2059f79..72dad5e 100644
+--- a/drivers/char/ipmi/ipmi_dmi.c
++++ b/drivers/char/ipmi/ipmi_dmi.c
+@@ -9,6 +9,7 @@
+ #include <linux/dmi.h>
+ #include <linux/platform_device.h>
+ #include <linux/property.h>
++#include <linux/prdbg.h>
+ #include "ipmi_dmi.h"
+ 
+ struct ipmi_dmi_info {
+@@ -43,6 +44,10 @@ static void __init dmi_add_platform_ipmi(unsigned long base_addr,
+ 	int rv;
+ 	struct ipmi_dmi_info *info;
+ 
++	prentry();
++	prdbg("type:%d flags:%08x base_addr:%08lx slave_addr:%x irq:%d offset:%d\n",
++	       type, flags, base_addr, slave_addr, irq, offset);
++
+ 	info = kmalloc(sizeof(*info), GFP_KERNEL);
+ 	if (!info) {
+ 		pr_warn("ipmi:dmi: Could not allocate dmi info\n");
+@@ -59,16 +64,22 @@ static void __init dmi_add_platform_ipmi(unsigned long base_addr,
+ 	override = "ipmi_si";
+ 	switch (type) {
+ 	case IPMI_DMI_TYPE_SSIF:
++		prdbg("IPMI_DMI_TYPE_SSIF\n");
+ 		name = "dmi-ipmi-ssif";
+ 		override = "ipmi_ssif";
+ 		offset = 1;
+ 		size = 1;
+ 		break;
+ 	case IPMI_DMI_TYPE_BT:
++		prdbg("IPMI_DMI_TYPE_BT\n");
+ 		size = 3;
+ 		break;
+ 	case IPMI_DMI_TYPE_KCS:
++		prdbg("IPMI_DMI_TYPE_KCS\n");
++		size = 2;
++		break;
+ 	case IPMI_DMI_TYPE_SMIC:
++		prdbg("IPMI_DMI_TYPE_SMIC\n");
+ 		size = 2;
+ 		break;
+ 	default:
+@@ -187,14 +198,20 @@ static void __init dmi_decode_ipmi(const struct dmi_header *dm)
+ 	int             irq = 0, offset;
+ 	int             type;
+ 
+-	if (len < DMI_IPMI_MIN_LENGTH)
++	prentry();
++	if (len < DMI_IPMI_MIN_LENGTH) {
++		prdbg("len:%d < DMI_IPMI_MIN_LENGTH:%d\n", len, DMI_IPMI_MIN_LENGTH);
+ 		return;
++	}
+ 
+ 	type = data[DMI_IPMI_TYPE];
+ 	slave_addr = data[DMI_IPMI_SLAVEADDR];
+ 
++	prdbg("NOTE: default flags have IORESOURCE_IO set!\n");
+ 	memcpy(&base_addr, data + DMI_IPMI_ADDR, sizeof(unsigned long));
++	prdbg("type: %d slave_addr: %X base_addr: %08lx\n", type, slave_addr, base_addr);
+ 	if (len >= DMI_IPMI_VER2_LENGTH) {
++		prdbg("New DMI spec (version-2)\n");
+ 		if (type == IPMI_DMI_TYPE_SSIF) {
+ 			offset = 0;
+ 			flags = 0;
+@@ -208,11 +225,23 @@ static void __init dmi_decode_ipmi(const struct dmi_header *dm)
+ 				base_addr = data[DMI_IPMI_SLAVEADDR] >> 1;
+ 				slave_addr = 0;
+ 			}
++			prdbg("type: IPMI_DMI_TYPE_SSIF new base_addr:%08lx flags: %08x\n",
++					base_addr, flags);
++			prdbg("Access will be through SMBus Sytem Interface\n");
+ 		} else {
++			prdbg("type is not IPMI_DMI_TYPE_SSIF\n");
++			if (IS_ENABLED(CONFIG_ARM64)) {
++				prdbg("This is an aarch64 system, so clear the low bit\n");
++				prdbg("in the base_addr: %lx\n", base_addr);
++				base_addr &= ~1UL;
++				prdbg("new base_addr: %lx\n", base_addr);
++			}
+ 			if (base_addr & 1) {
++				prdbg("base_addr lsb set: port_io access\n");
+ 				/* I/O */
+ 				base_addr &= DMI_IPMI_IO_MASK;
+ 			} else {
++				prdbg("base_addr lsb clr: mmio access\n");
+ 				/* Memory */
+ 				flags = IORESOURCE_MEM;
+ 			}
+@@ -243,8 +272,10 @@ static void __init dmi_decode_ipmi(const struct dmi_header *dm)
+ 				pr_err("ipmi:dmi: Invalid offset: 0");
+ 				return;
+ 			}
++			prdbg("base_addr:%08lx irq:%d offset:%d\n", base_addr, irq, offset);
+ 		}
+ 	} else {
++		prdbg("Old DMI spec, Port_IO by default!\n");
+ 		/* Old DMI spec. */
+ 		/*
+ 		 * Note that technically, the lower bit of the base
+@@ -256,6 +287,7 @@ static void __init dmi_decode_ipmi(const struct dmi_header *dm)
+ 		 */
+ 		base_addr = base_addr & DMI_IPMI_IO_MASK;
+ 		offset = 1;
++		prdbg("base_addr:%08lx Port_IO\n", base_addr);
+ 	}
+ 
+ 	dmi_add_platform_ipmi(base_addr, flags, slave_addr, irq,
+@@ -265,6 +297,7 @@ static void __init dmi_decode_ipmi(const struct dmi_header *dm)
+ static int __init scan_for_dmi_ipmi(void)
+ {
+ 	const struct dmi_device *dev = NULL;
++	prentry();
+ 
+ 	while ((dev = dmi_find_device(DMI_DEV_TYPE_IPMI, NULL, dev)))
+ 		dmi_decode_ipmi((const struct dmi_header *) dev->device_data);
+-- 
+1.8.3.1
+

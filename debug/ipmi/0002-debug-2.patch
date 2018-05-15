@@ -1,0 +1,103 @@
+From db5315cfdf74894b399c4fdbcf5673af19efd420 Mon Sep 17 00:00:00 2001
+From: Tony Camuso <tcamuso@redhat.com>
+Date: Fri, 11 May 2018 06:05:27 -0400
+Subject: [PATCH 2/3] debug-2
+
+Signed-off-by: Tony Camuso <tcamuso@redhat.com>
+---
+ drivers/base/platform.c          |  6 ++++++
+ drivers/char/ipmi/ipmi_si_intf.c | 15 +++++++++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/drivers/base/platform.c b/drivers/base/platform.c
+index 45700b9..cacf877 100644
+--- a/drivers/base/platform.c
++++ b/drivers/base/platform.c
+@@ -69,6 +69,12 @@ struct resource *platform_get_resource(struct platform_device *dev,
+ 				       unsigned int type, unsigned int num)
+ {
+ 	int i;
++	bool ipmi = (strstr(dev->name, "ipmi")) ? true : false;
++
++	if (ipmi) {
++		prentry();
++		prdbg("dev->name: %s type: %d\n", dev->name, type);
++	}
+ 
+ 	for (i = 0; i < dev->num_resources; i++) {
+ 		struct resource *r = &dev->resource[i];
+diff --git a/drivers/char/ipmi/ipmi_si_intf.c b/drivers/char/ipmi/ipmi_si_intf.c
+index ca07cf0..417c017 100644
+--- a/drivers/char/ipmi/ipmi_si_intf.c
++++ b/drivers/char/ipmi/ipmi_si_intf.c
+@@ -1830,6 +1830,9 @@ static int hotmod_handler(const char *val, struct kernel_param *kp)
+ 	int len;
+ 	struct smi_info *info;
+ 
++	prentry();
++	prdbg("str: %s\n", str);
++
+ 	if (!str)
+ 		return -ENOMEM;
+ 
+@@ -1991,10 +1994,14 @@ static int hardcode_find_bmc(void)
+ 	int             i;
+ 	struct smi_info *info;
+ 
++	prentry();
++
+ 	for (i = 0; i < SI_MAX_PARMS; i++) {
+ 		if (!ports[i] && !addrs[i])
+ 			continue;
+ 
++		prdbg("Found port:%x with addr:%lx at index:%d\n", ports[i], addrs[i], i);
++
+ 		info = smi_info_alloc();
+ 		if (!info)
+ 			return -ENOMEM;
+@@ -2281,6 +2288,7 @@ struct resource *ipmi_get_info_from_resources(struct platform_device *pdev,
+ {
+ 	struct resource *res, *res_second;
+ 
++	prentry();
+ 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
+ 	if (res) {
+ 		info->io_setup = port_setup;
+@@ -2341,20 +2349,25 @@ static int dmi_ipmi_probe(struct platform_device *pdev)
+ 
+ 	switch (type) {
+ 	case IPMI_DMI_TYPE_KCS:
++		prdbg("info->si_type = SI_KCS: %d\n", SI_KCS);
+ 		info->si_type = SI_KCS;
+ 		break;
+ 	case IPMI_DMI_TYPE_SMIC:
++		prdbg("info->si_type = SI_SMIC: %d\n", SI_SMIC);
+ 		info->si_type = SI_SMIC;
+ 		break;
+ 	case IPMI_DMI_TYPE_BT:
++		prdbg("info->si_type = SI_BT: %d\n", SI_BT);
+ 		info->si_type = SI_BT;
+ 		break;
+ 	default:
++		prdbg("info->si_type = UNKNOWN\n");
+ 		kfree(info);
+ 		return -EINVAL;
+ 	}
+ 
+ 	if (!ipmi_get_info_from_resources(pdev, info)) {
++		prdbg("call to ipmi_get_info_from_resources failed.\n");
+ 		rv = -EINVAL;
+ 		goto err_free;
+ 	}
+@@ -2567,6 +2580,8 @@ static int of_ipmi_probe(struct platform_device *dev)
+ 	int ret;
+ 	int proplen;
+ 
++	prentry();
++
+ 	dev_info(&dev->dev, "probing via device tree\n");
+ 
+ 	match = of_match_device(of_ipmi_match, &dev->dev);
+-- 
+1.8.3.1
+
